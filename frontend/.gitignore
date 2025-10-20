@@ -22,3 +22,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Claves o configuraciones privadas
+src/config/serviceAccountKey.json
