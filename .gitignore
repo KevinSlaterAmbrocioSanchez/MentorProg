@@ -1,0 +1,16 @@
+# Dependencias
+node_modules/
+frontend/node_modules/
+MentorProgApp/node_modules/
+
+# Variables de entorno
+.env
+
+# Claves privadas Firebase
+serviceAccountKey
+serviceAccountKey.*
+src/config/serviceAccountKey.*
+MentorProgApp/app/google-services.json
+
+# Archivos comprimidos
+*.zip
