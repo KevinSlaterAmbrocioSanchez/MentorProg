@@ -30,7 +30,8 @@ export const registrarIntento = async (req, res) => {
 
     if (!materiaId || !temaId || !subtemaId || !quizId || !userId) {
       return res.status(400).json({
-        mensaje: "materiaId, temaId, subtemaId, quizId y userId son obligatorios",
+        mensaje:
+          "materiaId, temaId, subtemaId, quizId y userId son obligatorios",
       });
     }
 
@@ -135,6 +136,7 @@ export const listarIntentosDeTema = async (req, res) => {
         userNombre: d.userNombre || null,
         userEmail: d.userEmail || null,
         subtemaId: d.subtemaId || null,
+        subtemaTitulo: d.subtemaTitulo || null, // 👈 NUEVO
         quizId: d.quizId || null,
         aciertos: d.aciertos ?? 0,
         totalPreguntas: d.totalPreguntas ?? 0,
@@ -144,7 +146,9 @@ export const listarIntentosDeTema = async (req, res) => {
     });
 
     // Ordenar por fecha descendente
-    intentos.sort((a, b) => (b.creadoEn || "").localeCompare(a.creadoEn || ""));
+    intentos.sort((a, b) =>
+      (b.creadoEn || "").localeCompare(a.creadoEn || "")
+    );
 
     console.log(`✅ Intentos encontrados: ${intentos.length}`);
 

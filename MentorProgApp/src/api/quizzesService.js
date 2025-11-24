@@ -41,6 +41,29 @@ export const obtenerQuizzesDeTema = async (
 };
 
 /**
+ * Obtiene un quiz por ID (solo si tienes endpoint /quizzes/:quizId en el backend).
+ */
+export const obtenerQuizPorId = async (token, quizId) => {
+  try {
+    const res = await apiClient.get(`/quizzes/${quizId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const quiz = res.data || null;
+    return { ok: true, quiz };
+  } catch (error) {
+    console.error(
+      "❌ Error al obtener quiz por ID:",
+      error?.response?.data || error.message
+    );
+    return {
+      ok: false,
+      mensaje: "Error al obtener quiz",
+    };
+  }
+};
+
+/**
  * Envía respuestas de un quiz para que el backend lo califique.
  */
 export const enviarRespuestasQuiz = async (
@@ -76,11 +99,47 @@ export const enviarRespuestasQuiz = async (
       "❌ Error al enviar respuestas del quiz:",
       error.response?.data || error.message
     );
+
     return {
       ok: false,
+      status: error.response?.status,
+      intentoPrevio: error.response?.data?.intentoPrevio || null,
       mensaje:
         error.response?.data?.mensaje ||
         "Error al enviar respuestas del quiz",
+    };
+  }
+};
+
+/**
+ * 🔎 Nuevo: obtiene, desde /progreso, si el usuario YA hizo ese quiz.
+ * Devuelve el intento si existe.
+ */
+export const obtenerIntentoUsuarioQuiz = async (token, quizId) => {
+  try {
+    const res = await apiClient.get("/progreso", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = res.data || {};
+    const lista = Array.isArray(data.progreso) ? data.progreso : [];
+
+    const intento = lista.find((item) => item.quizId === quizId);
+
+    if (!intento) {
+      return { ok: false, codigo: "SIN_INTENTO" };
+    }
+
+    return { ok: true, intento };
+  } catch (error) {
+    console.error(
+      "❌ Error al verificar intento de quiz:",
+      error.response?.data || error.message
+    );
+    return {
+      ok: false,
+      codigo: "ERROR",
+      mensaje: "Error al verificar si ya hiciste este quiz",
     };
   }
 };

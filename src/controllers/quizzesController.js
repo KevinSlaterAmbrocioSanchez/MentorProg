@@ -130,17 +130,11 @@ export const obtenerQuizPorId = async (req, res) => {
 /**
  * POST /quizzes/:quizId/submit
  *
- * Nuevo flujo:
+ * Opción 1:
  * - El frontend manda { materiaId, temaId, subtemaTitulo }
  * - Calificamos usando subjects/{materiaId}/temas/{temaId}/subtemas
- */
-/**
- * POST /quizzes/:quizId/submit
- *
- * Nuevo flujo:
- * - El frontend manda { materiaId, temaId, subtemaTitulo }
- * - Calificamos usando subjects/{materiaId}/temas/{temaId}/subtemas
- * - Guardamos el intento en userProgress/{userId}/quizzes
+ * - Guardamos el intento en la colección global "intentosQuiz"
+ * - Si el usuario ya hizo ese quiz → 409 y NO lo dejamos repetir
  */
 export const enviarRespuestasQuiz = async (req, res) => {
   try {
@@ -157,6 +151,41 @@ export const enviarRespuestasQuiz = async (req, res) => {
     if (!materiaId || !temaId) {
       return res.status(400).json({
         mensaje: "materiaId y temaId son obligatorios para calificar el quiz",
+      });
+    }
+
+    // 👇 userId robusto: intenta id, uid o email
+    const userId = usuario.id || usuario.uid || usuario.email || null;
+    const userNombre = usuario.nombre || usuario.name || "";
+    const userEmail = usuario.email || "";
+
+    if (!userId) {
+      return res.status(401).json({
+        mensaje: "No se pudo identificar al usuario en el token",
+      });
+    }
+
+    // 🛑 0. Verificar si YA existe un intento de este usuario para este quiz
+    const yaIntentoSnap = await db
+      .collection("intentosQuiz")
+      .where("userId", "==", userId)
+      .get();
+
+    let yaExisteParaEsteQuiz = false;
+    let intentoPrevio = null;
+
+    yaIntentoSnap.forEach((doc) => {
+      const d = doc.data();
+      if (d.quizId === quizId) {
+        yaExisteParaEsteQuiz = true;
+        intentoPrevio = { id: doc.id, ...d };
+      }
+    });
+
+    if (yaExisteParaEsteQuiz) {
+      return res.status(409).json({
+        mensaje: "Ya has realizado este quiz. Solo se permite un intento.",
+        intentoPrevio,
       });
     }
 
@@ -231,6 +260,7 @@ export const enviarRespuestasQuiz = async (req, res) => {
       ? subtema.preguntas
       : [];
 
+    // 4. Calificar
     let correctas = 0;
     const detalle = preguntas.map((p) => {
       // El frontend manda { [preguntaId]: indiceOpcionSeleccionada }
@@ -264,37 +294,37 @@ export const enviarRespuestasQuiz = async (req, res) => {
     const total = preguntas.length;
     const porcentaje = total > 0 ? Math.round((correctas / total) * 100) : 0;
 
-    // 4. Guardar progreso del usuario
-    if (usuario.id) {
-      const progresoRef = db
-        .collection("userProgress")
-        .doc(usuario.id)
-        .collection("quizzes");
+    // 5. Guardar intento en la colección GLOBAL intentosQuiz
+    const subtemaId = subtema.id || null;
+    const subtemaTituloFinal = subtemaTitulo || subtema.titulo || null;
 
-      const payloadProgreso = {
-        userId: usuario.id,
-        userNombre: usuario.nombre || null,     // 👈 nombre del usuario
-        userEmail: usuario.email || null,
-        materiaId,
-        temaId,
-        subtemaId: subtema.id || null,          // 👈 id del subtema
-        subtemaTitulo: subtemaTitulo || subtema.titulo || null,
-        quizId,
-        correctas,
-        total,
-        porcentaje,
-        fecha: new Date().toISOString(),        // 👈 fecha/hora ISO
-      };
+    const nuevoIntento = {
+      materiaId,
+      temaId,
+      subtemaId,
+      subtemaTitulo: subtemaTituloFinal,
+      quizId,
+      userId,
+      userNombre,
+      userEmail,
+      aciertos: correctas,
+      totalPreguntas: total,
+      porcentaje,
+      fecha: new Date().toISOString(),
+    };
 
-      await progresoRef.add(payloadProgreso);
-    }
+    const intentoRef = await db.collection("intentosQuiz").add(nuevoIntento);
 
+    console.log("✅ Intento guardado en intentosQuiz con id:", intentoRef.id);
+
+    // 6. Respuesta al cliente
     return res.json({
       mensaje: "✅ Quiz calificado correctamente",
       correctas,
       total,
       porcentaje,
       detalle,
+      intentoId: intentoRef.id,
     });
   } catch (error) {
     console.error("❌ Error en enviarRespuestasQuiz:", error);
@@ -304,4 +334,3 @@ export const enviarRespuestasQuiz = async (req, res) => {
     });
   }
 };
-

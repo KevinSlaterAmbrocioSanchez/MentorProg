@@ -12,6 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   obtenerQuizPorId,
   enviarRespuestasQuiz,
+  obtenerIntentoUsuarioQuiz,
 } from "../api/quizzesService";
 
 export default function ResolverQuizScreen({ route, navigation }) {
@@ -32,26 +33,52 @@ export default function ResolverQuizScreen({ route, navigation }) {
   const [enviando, setEnviando] = useState(false);
   const [selecciones, setSelecciones] = useState({});
   const [resultado, setResultado] = useState(null);
+  const [yaResuelto, setYaResuelto] = useState(false);
 
-  // 1. Cargar quiz desde backend si no trae preguntas
+  // 1. Cargar quiz y, además, verificar si YA hay intento guardado
   const cargarQuiz = async () => {
     setCargando(true);
 
-    // Si ya viene el quiz con preguntas desde QuizzesScreen, lo usamos
-    if (quizDesdeLista && Array.isArray(quizDesdeLista.preguntas)) {
-      setQuiz(quizDesdeLista);
-      setCargando(false);
-      return;
-    }
+    try {
+      let quizFinal = quizDesdeLista;
 
-    // Si no, lo pedimos al backend
-    const resp = await obtenerQuizPorId(token, quizId);
-    if (resp.ok) {
-      setQuiz(resp.quiz);
-    } else {
-      Alert.alert("Error", resp.mensaje || "No se pudo cargar el quiz.");
+      // Si ya viene el quiz con preguntas desde QuizzesScreen, lo usamos
+      if (!quizDesdeLista || !Array.isArray(quizDesdeLista.preguntas)) {
+        const respQuiz = await obtenerQuizPorId(token, quizId);
+        if (respQuiz.ok) {
+          quizFinal = respQuiz.quiz;
+        } else {
+          Alert.alert(
+            "Error",
+            respQuiz.mensaje || "No se pudo cargar el quiz."
+          );
+        }
+      }
+
+      if (quizFinal) {
+        setQuiz(quizFinal);
+      }
+
+      // 🔎 Verificar si el usuario YA tiene intento guardado en /progreso
+      const respIntento = await obtenerIntentoUsuarioQuiz(token, quizId);
+
+      if (respIntento.ok && respIntento.intento) {
+        const intento = respIntento.intento;
+        setResultado({
+          correctas: intento.aciertos ?? 0,
+          total: intento.totalPreguntas ?? 0,
+          porcentaje: intento.porcentaje ?? 0,
+        });
+        setYaResuelto(true); // 👈 Bloqueamos nuevos envíos
+      } else {
+        setResultado(null);
+        setYaResuelto(false);
+      }
+    } catch (error) {
+      console.log("Error en cargarQuiz:", error);
+    } finally {
+      setCargando(false);
     }
-    setCargando(false);
   };
 
   useEffect(() => {
@@ -62,6 +89,9 @@ export default function ResolverQuizScreen({ route, navigation }) {
 
   // 2. Manejar selección de opción
   const seleccionarOpcion = (preguntaId, indiceOpcion) => {
+    // Si ya está resuelto, no dejamos cambiar nada
+    if (yaResuelto) return;
+
     setSelecciones((prev) => ({
       ...prev,
       [preguntaId]: indiceOpcion,
@@ -70,6 +100,14 @@ export default function ResolverQuizScreen({ route, navigation }) {
 
   // 3. Enviar respuestas al backend
   const manejarEnviar = async () => {
+    if (yaResuelto || resultado) {
+      Alert.alert(
+        "Quiz ya contestado",
+        "Ya respondiste este quiz. Solo se permite un intento."
+      );
+      return;
+    }
+
     if (!preguntas.length) {
       Alert.alert("Sin preguntas", "Este quiz no tiene preguntas.");
       return;
@@ -103,19 +141,37 @@ export default function ResolverQuizScreen({ route, navigation }) {
 
     setEnviando(true);
     const resp = await enviarRespuestasQuiz(token, quizId, respuestas, {
-  materiaId,
-  temaId,
-  subtemaTitulo,
-});
-
+      materiaId,
+      temaId,
+      subtemaTitulo,
+    });
     setEnviando(false);
 
     if (!resp.ok) {
-      Alert.alert("Error", resp.mensaje || "No se pudo enviar el quiz.");
+      // Si el backend responde 409 → ya hay intento
+      if (resp.status === 409) {
+        if (resp.intentoPrevio) {
+          const intento = resp.intentoPrevio;
+          setResultado({
+            correctas: intento.aciertos ?? 0,
+            total: intento.totalPreguntas ?? 0,
+            porcentaje: intento.porcentaje ?? 0,
+          });
+        }
+        setYaResuelto(true);
+        Alert.alert(
+          "Quiz ya contestado",
+          resp.mensaje || "Ya respondiste este quiz."
+        );
+      } else {
+        Alert.alert("Error", resp.mensaje || "No se pudo enviar el quiz.");
+      }
       return;
     }
 
+    // ✅ Primer intento correcto: mostramos resultado y ya NO dejamos volver a enviar
     setResultado(resp.resultado);
+    setYaResuelto(true);
   };
 
   // 4. Render de opciones tipo Duolingo
@@ -135,24 +191,30 @@ export default function ResolverQuizScreen({ route, navigation }) {
 
     const seleccionada = seleccionActual === index;
 
+    const fondo = seleccionada ? "#58CC02" : "#FFFFFF";
+    const borde = seleccionada ? 0 : 1;
+    const textoColor = seleccionada ? "#FFFFFF" : "#111827";
+
     return (
       <TouchableOpacity
         key={opcion.id || index}
         onPress={() => seleccionarOpcion(id, index)}
+        disabled={yaResuelto} // 👈 No se pueden cambiar si ya está resuelto
         style={{
           paddingVertical: 12,
           paddingHorizontal: 14,
           borderRadius: 18,
-          borderWidth: seleccionada ? 0 : 1,
+          borderWidth: borde,
           borderColor: "#E5E7EB",
-          backgroundColor: seleccionada ? "#58CC02" : "#FFFFFF",
+          backgroundColor: fondo,
           marginBottom: 8,
+          opacity: yaResuelto ? 0.75 : 1,
         }}
       >
         <Text
           style={{
             fontSize: 15,
-            color: seleccionada ? "#FFFFFF" : "#111827",
+            color: textoColor,
             fontWeight: seleccionada ? "700" : "500",
           }}
         >
@@ -257,7 +319,7 @@ export default function ResolverQuizScreen({ route, navigation }) {
         </Text>
       ) : null}
 
-      {/* Resultado si ya se envió */}
+      {/* Resultado si ya se envió o si ya existía intento */}
       {resultado && (
         <View
           style={{
@@ -291,6 +353,17 @@ export default function ResolverQuizScreen({ route, navigation }) {
               {resultado.porcentaje}%
             </Text>
           </Text>
+          {yaResuelto && (
+            <Text
+              style={{
+                marginTop: 6,
+                color: "#16A34A",
+                fontSize: 13,
+              }}
+            >
+              Ya contestaste este quiz. Solo se registra un intento.
+            </Text>
+          )}
         </View>
       )}
 
@@ -335,15 +408,16 @@ export default function ResolverQuizScreen({ route, navigation }) {
       {/* Botón Enviar */}
       <TouchableOpacity
         onPress={manejarEnviar}
-        disabled={enviando || !preguntas.length}
+        disabled={enviando || !preguntas.length || yaResuelto}
         style={{
-          backgroundColor: enviando ? "#A7F3D0" : "#58CC02",
+          backgroundColor:
+            enviando || yaResuelto ? "#A7F3D0" : "#58CC02",
           paddingVertical: 14,
           borderRadius: 24,
           alignItems: "center",
           marginTop: 10,
           marginBottom: 30,
-          opacity: preguntas.length === 0 ? 0.6 : 1,
+          opacity: preguntas.length === 0 || yaResuelto ? 0.6 : 1,
         }}
       >
         {enviando ? (
@@ -356,7 +430,7 @@ export default function ResolverQuizScreen({ route, navigation }) {
               fontWeight: "bold",
             }}
           >
-            Enviar respuestas
+            {yaResuelto ? "Quiz ya contestado" : "Enviar respuestas"}
           </Text>
         )}
       </TouchableOpacity>
