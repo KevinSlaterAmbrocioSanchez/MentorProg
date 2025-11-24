@@ -22,7 +22,7 @@ export const obtenerProgresoUsuario = async (req, res) => {
 
     snap.forEach((doc) => {
       const d = doc.data();
-          rogreso.push({
+           progreso.push({
         id: doc.id,
         materiaId: d.materiaId || null,
         temaId: d.temaId || null,
